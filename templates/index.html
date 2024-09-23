@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo Organizer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            height: 100vh;
+            overflow: hidden;
+            background-image: url('/static/background.jpg');
+            background-size: cover;
+            color: #333;
+        }
+        #main-container {
+            display: flex;
+            position: relative;
+            height: 100%;
+        }
+        #photo-container {
+            flex: 3;
+            position: relative;
+            border: 1px solid #ccc;
+            background: #fff;
+            overflow: hidden;
+        }
+        .photo-wrapper {
+            position: relative;
+            display: inline-block;
+            margin: 10px;
+        }
+        .photo {
+            display: block;
+            max-width: 200px;
+            max-height: 200px;
+            border: 2px solid black;
+            cursor: move;
+            resize: both;
+            overflow: hidden;
+        }
+        .note-input {
+            width: 100%;
+            margin-top: 5px;
+        }
+        #sidebar {
+            flex: 1;
+            background: #fff;
+            border-left: 1px solid #ccc;
+            padding: 10px;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+        #toolbar {
+            margin-bottom: 10px;
+        }
+        .tool {
+            margin-right: 10px;
+            cursor: pointer;
+        }
+        #drawing-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+            z-index: 1;
+        }
+    </style>
+</head>
+<body>
+    <div id="main-container">
+        <div id="photo-container">
+            <canvas id="drawing-canvas"></canvas>
+        </div>
+        <div id="sidebar">
+            <h2>Photo Notes</h2>
+            <input type="file" id="photo-upload" multiple>
+            <button id="upload-button">Upload Photos</button>
+            <div id="photo-list"></div>
+            <h2>Drawing Tool</h2>
+            <div id="toolbar">
+                <button id="pen-tool" class="tool">Pen</button>
+            </div>
+            <h2>Notes</h2>
+            <textarea id="note-input" class="note-input" placeholder="Write a note..."></textarea>
+            <button id="save-note">Save Note</button>
+            <div id="notes-list"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/konva@8.3.5/konva.min.js"></script>
+    <script>
+        const photoUpload = document.getElementById('photo-upload');
+        const uploadButton = document.getElementById('upload-button');
+        const photoList = document.getElementById('photo-list');
+        const noteInput = document.getElementById('note-input');
+        const saveNoteButton = document.getElementById('save-note');
+        const notesList = document.getElementById('notes-list');
+        const drawingCanvas = document.getElementById('drawing-canvas');
+        const ctx = drawingCanvas.getContext('2d');
+
+        let selectedPhotoId = null;
+        let penMode = false;
+
+        // Set up Konva stage and layer
+        const stage = new Konva.Stage({
+            container: 'photo-container',
+            width: window.innerWidth * 0.75,
+            height: window.innerHeight
+        });
+        const layer = new Konva.Layer();
+        stage.add(layer);
+
+        // Drawing functionality
+        
+        let drawing = false;
+        ctx.lineWidth = 10;
+        ctx.strokeStyle = 'black';
+
+        drawingCanvas.addEventListener('mousedown', () => {
+            drawing = true;
+            ctx.beginPath();
+        });
+
+        drawingCanvas.addEventListener('mousemove', (e) => {
+            if (drawing) {
+                ctx.lineTo(e.offsetX, e.offsetY);
+                ctx.stroke();
+            }
+        });
+
+        drawingCanvas.addEventListener('mouseup', () => {
+            drawing = false;
+            ctx.closePath();
+        });
+
+        // Handle photo upload
+        uploadButton.onclick = function() {
+            photoUpload.click();
+        };
+
+        photoUpload.onchange = function() {
+            let formData = new FormData();
+            for (let file of photoUpload.files) {
+                formData.append('files', file);
+            }
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            }).then(response => response.json())
+                .then(data => {
+                    data.urls.forEach((url, index) => {
+                    let wrapper = document.createElement('div');
+                        wrapper.className = 'photo-wrapper';
+                        let img = new Konva.Image({
+                            image: new Image(),
+                          x: index * 220,
+                            y: 10,
+                            width: 200,
+                            height: 200,
+                            draggable: true
+                        });
+                        img.image().src = url;
+                        img.on('click', function() {
+                            selectedPhotoId = url;
+                            fetch(`/notes/${url}`)
+                                .then(response => response.json())
+                                .then(data => {
+                                    noteInput.value = data.text || '';
+                                });
+                        });
+                        layer.add(img);
+                        let noteInput = document.createElement('textarea');
+                        noteInput.className = 'note-input';
+                        noteInput.placeholder = 'Write a note...';
+                        noteInput.dataset.photoId = url;
+                        let saveButton = document.createElement('button');
+                        saveButton.innerText = 'Save Note';
+                        saveButton.onclick = function() {
+                            fetch('/notes', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    id: url,
+                                    text: noteInput.value
+                                })
+                            }).then(response => response.json())
+                            .then(() => updateNotesList());
+                        };
+                        wrapper.appendChild(img.node().toImage());
+                        wrapper.appendChild(noteInput);
+                        wrapper.appendChild(saveButton);
+                        photoList.appendChild(wrapper);
+                    });
+                layer.draw();
+                });
+        };
+
+        function updateNotesList() {
+            notesList.innerHTML = '';
+            Object.keys(notes_data).forEach(photoId => {
+                let noteDiv = document.createElement('div');
+                noteDiv.className = 'note';
+                noteDiv.textContent = notes_data[photoId] || 'No notes';
+                notesList.appendChild(noteDiv);
+            });
+        }
+    </script>
+</body>
+</html>
